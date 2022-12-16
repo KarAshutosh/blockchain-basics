@@ -74,4 +74,98 @@ class Peer:
     
     def send_message(self, message):
         """Send a message to all known peers"""
-        for peer in self.
+        for peer in self.peers:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect((peer.host, peer.port))
+                sock.sendall(json.dumps(message).encode())
+            except Exception as e:
+                print("Error sending message: {}".format(e))
+            finally:
+                sock.close()
+
+    def add_peer(self, peer):
+        """Add a new peer to the set of known peers"""
+        self.peers.add(peer)
+    
+    def receive_message(self, message):
+        """Process a message received from a peer"""
+        self.received_messages.append(message)
+
+class P2PNetwork:
+    def __init__(self, node_id):
+        self.node_id = node_id
+        self.blockchain = Blockchain(node_id)
+        self.peers = set()
+        self.lock = threading.Lock()
+    
+    def add_peer(self, peer):
+        """Add a new peer to the set of known peers"""
+        with self.lock:
+            self.peers.add(peer)
+            self.blockchain.add_peer(peer)
+    
+    def broadcast(self, message):
+        """Send a message to all known peers"""
+        with self.lock:
+            for peer in self.peers:
+                peer.send_message(message)
+    
+    def receive_message(self, message):
+        """Process a message received from a peer"""
+        with self.lock:
+            self.blockchain.receive_message(message)
+
+def start_network(node_id):
+    """Start a P2P network with the given node ID"""
+    network = P2PNetwork(node_id)
+    server = ServerThread(network)
+    client = ClientThread(network)
+    server.start()
+    client.start()
+
+def create_node(node_id, host, port):
+    """Create a new node with the given ID and connect to the specified host and port"""
+    peer = Peer(node_id)
+    client = Client(host, port, peer)
+    client.start()
+
+class ServerThread(threading.Thread):
+    def __init__(self, network):
+        super().__init__()
+        self.network = network
+    
+    def run(self):
+        """Start the server"""
+        server = Server(("0.0.0.0", 10000), self.network)
+        server.serve_forever()
+
+class ClientThread(threading.Thread):
+    def __init__(self, network):
+        super().__init__()
+        self.network = network
+    
+    def run(self):
+        """Start the client"""
+        while True:
+            time.sleep(10)
+            self.network.broadcast({"type": "ping"})
+
+class Server(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    def __init__(self, address, network):
+        super().__init__(address, ServerHandler)
+        self.network = network
+
+class ServerHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        """Handle incoming messages"""
+        message = json.loads(self.request.recv(1024).decode())
+        self.server.network.receive_message(message)
+
+class Client:
+    def __init__(self, host, port, peer):
+        self.host = host
+        self.port = port
+        self.peer = peer
+    
+
